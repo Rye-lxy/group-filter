@@ -9,9 +9,11 @@ A tool to eliminate effect of existing insertions in [dnarrange](https://github.
 1. Checking if the start position (if human genome segment follows insertion segment) or the end position (if insertion segment follows human genome segment) of read alignments to human genome is in target region (specified by RepeatMasker `.out` file).
 2. Checking if the direction of insertion segment is identical to the target region.
 
-The groups satisfy these 2 conditions will be removed.
+Those groups satisfy these 2 conditions will be removed.
 
 `--gap N` can extend the target region N-base long in both directions.
+
+Only groups consist of 2 segments could pass the filter.
 
 ## Options
 `--seg`: Specify the target region file.

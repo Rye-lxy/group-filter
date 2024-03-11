@@ -34,9 +34,7 @@ def segmentsFromLines(lines):
 def groupsFromLines(lines):
     title = ""
     for line in lines:
-        if line.startswith("# dnarrange"):
-            continue
-        if line.startswith("# PART"):
+        if line.startswith("# PART"):  # alignment starts
             yield title, textList, segList
             break
         stripped = line.rstrip()
@@ -86,10 +84,13 @@ def main(args):
     inFile = openFile(args.input)
     outFile = open(args.output + ".maf", "w+")
 
+    # Conserve the first line of infile.
+    outFile.write(inFile.readline())
+
     for group, textList, segList in groupsFromLines(inFile):
         segNums = list(map(lambda x: len(x), segList))
         if sum(segNums) / len(segNums) > 2:
-            # Do nothing if there're more than 2 segments in the rearranegment
+            # Do nothing if there're more than 2 segments in the rearranegment.
             continue
         isUpstream = None
         isInsRev = None
