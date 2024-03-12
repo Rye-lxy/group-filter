@@ -54,39 +54,8 @@ def groupsFromLines(lines):
             textList.append(stripped)
             segList[-1] += fields[1:]
 
-def redirectAlignments(input, output, groupList):
-    if groupList[0].startswith("group1"):
-        print("#", "PART", groupList[0], sep=" ", file=output)
-        print("\n", file=output)
-        line = input.readline()
-        while not line[0] == "#":
-            print(line, end="", file=output)
-            line = input.readline()
-    else:
-        line = input.readline()
-        while not line[0] == "#":
-            line = input.readline()
-    
-    outputFlag = False
-    while line:
-        if line[0] == "#":
-            group = line.split()[2]
-            outputFlag = group in groupList
-
-        if outputFlag:
-            print(line, end="", file=output)
-
-        line = input.readline()
-
-def main(args):
-    segs = dict(segmentsFromLines(openFile(args.seg)))
+def filterByGroups(inFile, outFile, segs, insert, gap):
     passedGroup = []
-    inFile = openFile(args.input)
-    outFile = open(args.output + ".maf", "w+")
-
-    # Conserve the first line of infile.
-    outFile.write(inFile.readline())
-
     for group, textList, segList in groupsFromLines(inFile):
         segNums = list(map(lambda x: len(x), segList))
         if sum(segNums) / len(segNums) > 2:
@@ -99,7 +68,7 @@ def main(args):
         refEnd = 0
         for readsAlns in segList:
             if isUpstream is None:
-                isUpstream = readsAlns[0].startswith(args.insert)
+                isUpstream = readsAlns[0].startswith(insert)
             if isUpstream:
                 refSeq = readsAlns[1]
                 insSeq = readsAlns[0]
@@ -124,9 +93,9 @@ def main(args):
             qryName, qryBeg, qryEnd = key
             if qryName == refName:
                 if isUpstream:
-                    posRemover = qryBeg - args.gap <= refBeg and refBeg <= qryEnd + args.gap
+                    posRemover = qryBeg - gap <= refBeg and refBeg <= qryEnd + gap
                 else:
-                    posRemover = qryBeg - args.gap <= refEnd and refEnd <= qryEnd + args.gap
+                    posRemover = qryBeg - gap <= refEnd and refEnd <= qryEnd + gap
 
                 if posRemover:
                     isRev, rptFam, rptBeg, rptEnd = segs[key]
@@ -137,9 +106,43 @@ def main(args):
             print("#", group, sep=" ", file=outFile)
             print(*textList, sep="\n", file=outFile)
             print("\n", file=outFile)
+    # end of iteration in groupsFromLines
     
     print("%d groups passed the filter." % (len(passedGroup)))
-    redirectAlignments(inFile, outFile, passedGroup)
+    line = inFile.readline()
+    if passedGroup[0].startswith("group1-"):
+        print("#", "PART", passedGroup[0], sep=" ", file=outFile)
+        print("\n", file=outFile)
+        while not line[0] == "#":
+            print(line, end="", file=outFile)
+            line = inFile.readline()
+    else:
+        while not line[0] == "#":
+            line = inFile.readline()
+    
+    outputFlag = False
+    while line:
+        if line[0] == "#":
+            group = line.split()[2]
+            outputFlag = group in passedGroup
+
+        if outputFlag:
+            print(line, end="", file=outFile)
+
+        line = inFile.readline()
+
+def main(args):
+    segs = dict(segmentsFromLines(openFile(args.seg)))
+    inFile = openFile(args.input)
+    outFile = open(args.output + ".maf", "w+")
+
+    # Conserve the first line of infile.
+    print(inFile.readline(), file=outFile)
+
+    if args.a:
+        pass
+    else:
+        filterByGroups(inFile, outFile, segs, args.insert, args.gap)
 
     inFile.close()
     outFile.close()
@@ -150,7 +153,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seg", help="segment file", required=True)
     parser.add_argument("--insert", help="insertion segment name", required=True)
-    parser.add_argument("--gap", help="set a gap for both ends", default=0, type=int)
+    parser.add_argument("--gap", help="(default 0) set a gap for both ends", default=0, type=int)
+    parser.add_argument("-a", help="filter by alignment", action="store_true")
     parser.add_argument("-i", "--input", help="input maf file", required=True)
     parser.add_argument("-o", "--output", help="output prefix", required=True)
     args = parser.parse_args()
