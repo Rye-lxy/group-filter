@@ -4,6 +4,7 @@ import gzip
 import argparse
 import signal
 import sys
+import re
 
 def openFile(fileName):
     if fileName == "-":
@@ -38,9 +39,9 @@ def groupsFromLines(lines):
             yield title, textList, segList
             break
         stripped = line.rstrip()
-        if not stripped:
-            continue
         fields = stripped.split()
+        if len(fields) < 2:
+            continue
         if fields[1].startswith("group"):
             if title:
                 yield title, textList, segList
@@ -50,7 +51,7 @@ def groupsFromLines(lines):
         elif fields[1].endswith("+") or fields[1].endswith("-"):
             textList.append(stripped)
             segList.append(fields[2:])
-        else:
+        elif re.match("\w+:\d+[<>]\d+", fields[1]):
             textList.append(stripped)
             segList[-1] += fields[1:]
 
@@ -135,9 +136,6 @@ def main(args):
     segs = dict(segmentsFromLines(openFile(args.seg)))
     inFile = openFile(args.input)
     outFile = open(args.output + ".maf", "w+")
-
-    # Conserve the first line of infile.
-    print(inFile.readline(), file=outFile)
 
     if args.a:
         pass
