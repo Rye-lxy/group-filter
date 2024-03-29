@@ -5,6 +5,131 @@ import argparse
 import signal
 import sys
 import re
+from functools import total_ordering
+
+
+@total_ordering
+class Segment:
+    def __init__(self, name, start, end, isRev):
+        self.name = name
+        self.start = int(start)
+        self.end = int(end)
+        self.isRev = isRev
+        self.length = self.end - self.start + 1
+
+    def __str__(self):
+        if self.isRev:
+            return "{0}:{2}>{1}".format(self.name, self.start, self.end)
+        else:
+            return "{0}:{1}<{2}".format(self.name, self.start, self.end)
+        
+    def __lt__(self, other):
+        if not isinstance(other, Segment):
+            raise AttributeError("Incorrect attribute")
+        if self.name != other.name:
+            return self.name < other.name
+        elif self.isRev != other.isRev:
+            return other.isRev
+        elif self.start != other.start:
+            return self.start < other.start
+        else:
+            return self.end < other.end
+        
+    def __eq__(self, other):
+        if not isinstance(other, Segment):
+            raise AttributeError("Incorrect attribute")
+        return self.name == other.name and self.start == other.start and \
+            self.end == other.end and self.isRev == other.isRev
+
+    @classmethod
+    def generateFromStr(self, segStr):
+        splited_1 = segStr.split(":")
+        name = splited_1[0]
+        region = splited_1[1]
+        if "<" in region:
+            splited_2 = region.split("<")
+            start = splited_2[0]
+            end = splited_2[1]
+            isRev = False
+        else:
+            splited_2 = region.split(">")
+            start = splited_2[1]
+            end = splited_2[0]
+            isRev = True
+        
+        return self(name, start, end, isRev)
+    
+    def cat(self, other, maxGap = 0.1):
+        if not isinstance(other, Segment):
+            raise AttributeError("Connot concatenate!")
+        
+        if self.isRev != other.isRev or self.name != other.name:
+            # print("{0} and {1} cannot be concatenated.".format(self, other))
+            return self
+        gap = (self.length + other.length) * maxGap if maxGap < 1 else maxGap
+        if other.start < self.start:
+            if other.end > self.end:
+                return other
+            elif self.start - other.end < gap:
+                return Segment(self.name, other.start, self.end, self.isRev)
+            else:
+                return self
+        elif other.end < self.end:
+            return self
+        elif other.start - self.end < gap:
+                return Segment(self.name, self.start, other.end, self.isRev)
+        else:
+            return self
+        
+    def isCatableWith(self, other, maxGap = 0.1):
+        if not isinstance(other, Segment):
+            return False
+        if self.isRev != other.isRev:
+            return False
+        gap = (self.length + other.length) * maxGap if maxGap < 1 else maxGap
+        if other.start < self.start:
+            return self.start - other.end < gap
+        else:
+            return other.start - self.end < gap
+        
+    def isWithin(self, other):
+        if not isinstance(other, Segment):
+            raise AttributeError("Incorrect attribute")
+        return self.name == other.name and self.isRev == other.isRev and \
+            self.start >= other.start and self.end <= other.end
+    
+    def reverse(self):
+        self.isRev = not self.isRev
+
+
+def getMainSegment(segList, ignore):
+    sortedList = sorted(segList)
+    tmpSeg = None
+    combinedList = []
+
+    for seg in sortedList:
+        if seg.name == ignore:
+            continue
+        if tmpSeg:
+            if tmpSeg.isCatableWith(seg):
+                tmpSeg = tmpSeg.cat(seg)
+            else:
+                combinedList.append(tmpSeg)
+                tmpSeg = seg
+        else:
+            tmpSeg = seg
+    combinedList.append(tmpSeg)
+    
+    if len(combinedList) < 1:
+        return
+    if len(combinedList) == 1:
+        return combinedList[0]
+
+    lengthList = [x.length for x in combinedList]
+    totalLen = sum(lengthList)
+    sortedLenList = sorted(lengthList, reverse=True)
+    if (sortedLenList[0] - sortedLenList[1]) / totalLen > 0.2:
+        return combinedList[lengthList.index(sortedLenList[0])]
 
 def openFile(fileName):
     if fileName == "-":
@@ -55,7 +180,7 @@ def groupsFromLines(lines):
             textList.append(stripped)
             segList[-1] += fields[1:]
 
-def filterByGroups(inFile, outFile, segs, insert, gap):
+def filterByGroups(inFile, outFile, segs, insert):
     passedGroup = []
     for group, textList, segList in groupsFromLines(inFile):
         segNums = list(map(lambda x: len(x), segList))
@@ -94,9 +219,9 @@ def filterByGroups(inFile, outFile, segs, insert, gap):
             qryName, qryBeg, qryEnd = key
             if qryName == refName:
                 if isUpstream:
-                    posRemover = qryBeg - gap <= refBeg and refBeg <= qryEnd + gap
+                    posRemover = qryBeg <= refBeg and refBeg <= qryEnd
                 else:
-                    posRemover = qryBeg - gap <= refEnd and refEnd <= qryEnd + gap
+                    posRemover = qryBeg <= refEnd and refEnd <= qryEnd
 
                 if posRemover:
                     isRev, rptFam, rptBeg, rptEnd = segs[key]
@@ -140,7 +265,7 @@ def main(args):
     if args.a:
         pass
     else:
-        filterByGroups(inFile, outFile, segs, args.insert, args.gap)
+        filterByGroups(inFile, outFile, segs, args.insert)
 
     inFile.close()
     outFile.close()
@@ -151,11 +276,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seg", help="segment file", required=True)
     parser.add_argument("--insert", help="insertion segment name", required=True)
-    parser.add_argument("--gap", help="(default 0) set a gap for both ends", default=0, type=int)
-    parser.add_argument("-a", help="filter by alignment", action="store_true")
+    # parser.add_argument("--gap", help="(default 0) set a gap for both ends", default=0, type=int)
+    # parser.add_argument("-a", help="filter by alignment", action="store_true")
     parser.add_argument("-i", "--input", help="input maf file", required=True)
     parser.add_argument("-o", "--output", help="output prefix", required=True)
     args = parser.parse_args()
+    args.a = None
     main(args)
     
 
