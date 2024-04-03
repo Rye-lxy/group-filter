@@ -140,7 +140,7 @@ def groupsFromLines(lines):
             textList.append(stripped)
             segList[-1] += fields[1:]
 
-def filterByGroups(inFile, outFile, segs, insert):
+def filterByGroups(inFile, outFile, segs, insert, gap):
     passedGroup = []
     for group, textList, segList in groupsFromLines(inFile):
         readSegs = list(map(Segment.generateFromStr, segList[0]))
@@ -203,9 +203,9 @@ def filterByGroups(inFile, outFile, segs, insert):
                 break
             if seg.name == ref.name:
                 if isUpstream:
-                    posRemover = seg.start <= ref.start and ref.start <= seg.end
+                    posRemover = seg.start <= ref.start - gap and ref.start - gap <= seg.end
                 else:
-                    posRemover = seg.start <= ref.end and ref.end <= seg.end
+                    posRemover = seg.start <= ref.end + gap and ref.end + gap <= seg.end
 
 
                 if posRemover:
@@ -244,12 +244,13 @@ def filterByGroups(inFile, outFile, segs, insert):
 def main(args):
     segs = dict(segmentsFromLines(openFile(args.seg)))
     inFile = openFile(args.input)
-    outFile = open(args.output if args.output.endswith("maf") else args.output + ".maf", "w+")
+    outFile = open(args.output if args.output.endswith("maf") else 
+                   args.output + ".maf", "w+")
 
-    if args.gap:
+    if args.gap < 0:
         pass
     else:
-        filterByGroups(inFile, outFile, segs, args.insert)
+        filterByGroups(inFile, outFile, segs, args.insert, args.gap)
 
     inFile.close()
     outFile.close()
@@ -258,11 +259,13 @@ def main(args):
 if __name__ == "__main__":
     signal.signal(signal.SIGPIPE, signal.SIG_DFL)  # avoid silly error message
     parser = argparse.ArgumentParser()
-    parser.add_argument("--seg", help="segment file", required=True)
-    parser.add_argument("--insert", help="insertion segment name", required=True)
-    parser.add_argument("--gap", help="considering gaps in read alignments", action="store_true")
-    parser.add_argument("-i", "--input", help="input maf file", required=True)
-    parser.add_argument("-o", "--output", help="output file name, add maf suffix if not specified", required=True)
+    parser.add_argument("--seg", help="Segment file to check.", required=True)
+    parser.add_argument("--insert", help="Insertion sequence name.", required=True)
+    parser.add_argument("--gap", nargs="?", const=-1, default=0, type=int,
+                        help="Set a gap, or determine gap from alignment with no argument.")
+    parser.add_argument("-i", "--input", help="Input maf file", required=True)
+    parser.add_argument("-o", "--output", required=True,
+                        help="Output file name, add 'maf' suffix if not specified.")
     args = parser.parse_args()
     main(args)
     
