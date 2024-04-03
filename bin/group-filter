@@ -5,10 +5,8 @@ import argparse
 import signal
 import sys
 import re
-from functools import total_ordering
 
 
-@total_ordering
 class Segment:
     def __init__(self, name, start, end, isRev):
         self.name = name
@@ -22,27 +20,11 @@ class Segment:
             return "{0}:{2}>{1}".format(self.name, self.start, self.end)
         else:
             return "{0}:{1}<{2}".format(self.name, self.start, self.end)
-        
-    def __lt__(self, other):
-        if not isinstance(other, Segment):
-            raise AttributeError("Incorrect attribute")
-        if self.name != other.name:
-            return self.name < other.name
-        elif self.isRev != other.isRev:
-            return other.isRev
-        elif self.start != other.start:
-            return self.start < other.start
-        else:
-            return self.end < other.end
-        
-    def __eq__(self, other):
-        if not isinstance(other, Segment):
-            raise AttributeError("Incorrect attribute")
-        return self.name == other.name and self.start == other.start and \
-            self.end == other.end and self.isRev == other.isRev
 
     @classmethod
     def generateFromStr(self, segStr):
+        # Initialize from the segment string
+        # e.g. "chr1:11<100"
         splited_1 = segStr.split(":")
         name = splited_1[0]
         region = splited_1[1]
@@ -59,7 +41,10 @@ class Segment:
         
         return self(name, start, end, isRev)
     
-    def cat(self, other, maxGap = 0.1):
+    def cat(self, other, maxGap = 0.2):
+        # Concatenate 2 close or overlapped segments.
+        # Notice: it will return the origin object 
+        # if one segment covers another completely.
         if not isinstance(other, Segment):
             raise AttributeError("Connot concatenate!")
         
@@ -81,7 +66,8 @@ class Segment:
         else:
             return self
         
-    def isCatableWith(self, other, maxGap = 0.1):
+    def isCatableWith(self, other, maxGap = 0.2):
+        # Check if 2 segments can be concatenated by cat function.
         if not isinstance(other, Segment):
             return False
         if self.isRev != other.isRev:
@@ -93,43 +79,17 @@ class Segment:
             return other.start - self.end < gap
         
     def isWithin(self, other):
+        # Check if one segment (self) is totally covered by another.
         if not isinstance(other, Segment):
             raise AttributeError("Incorrect attribute")
         return self.name == other.name and self.isRev == other.isRev and \
             self.start >= other.start and self.end <= other.end
     
     def reverse(self):
+        # Reverse the strand
         self.isRev = not self.isRev
+        return self
 
-
-def getMainSegment(segList, ignore):
-    sortedList = sorted(segList)
-    tmpSeg = None
-    combinedList = []
-
-    for seg in sortedList:
-        if seg.name == ignore:
-            continue
-        if tmpSeg:
-            if tmpSeg.isCatableWith(seg):
-                tmpSeg = tmpSeg.cat(seg)
-            else:
-                combinedList.append(tmpSeg)
-                tmpSeg = seg
-        else:
-            tmpSeg = seg
-    combinedList.append(tmpSeg)
-    
-    if len(combinedList) < 1:
-        return
-    if len(combinedList) == 1:
-        return combinedList[0]
-
-    lengthList = [x.length for x in combinedList]
-    totalLen = sum(lengthList)
-    sortedLenList = sorted(lengthList, reverse=True)
-    if (sortedLenList[0] - sortedLenList[1]) / totalLen > 0.2:
-        return combinedList[lengthList.index(sortedLenList[0])]
 
 def openFile(fileName):
     if fileName == "-":
@@ -146,21 +106,21 @@ def segmentsFromLines(lines):
         if stripped.startswith("SW") or stripped.startswith("score"):
             continue
         fields = stripped.split()
-        qrySeq = fields[4]
+        qryName = fields[4]
         qryBeg = int(fields[5])
         qryEnd = int(fields[6])
         isRev = fields[8] == "C"
         rptFam = fields[10]
         rptBeg = int(fields[13] if isRev else fields[11])
         rptEnd = int(fields[12])
-        pos = qrySeq, qryBeg, qryEnd
-        data = isRev, rptFam, rptBeg, rptEnd
-        yield pos, data
+        seg = Segment(qryName, qryBeg, qryEnd, isRev)
+        data = rptFam, rptBeg, rptEnd
+        yield seg, data
 
 def groupsFromLines(lines):
     title = ""
     for line in lines:
-        if line.startswith("# PART"):  # alignment starts
+        if line.startswith("# PART"):  # group info end
             yield title, textList, segList
             break
         stripped = line.rstrip()
@@ -183,49 +143,73 @@ def groupsFromLines(lines):
 def filterByGroups(inFile, outFile, segs, insert):
     passedGroup = []
     for group, textList, segList in groupsFromLines(inFile):
-        segNums = list(map(lambda x: len(x), segList))
-        if sum(segNums) / len(segNums) > 2:
-            # Do nothing if there're more than 2 segments in the rearranegment.
-            continue
-        isUpstream = None
-        isInsRev = None
-        refName = ""
-        refBeg = sys.maxsize
-        refEnd = 0
-        for readsAlns in segList:
-            if isUpstream is None:
-                isUpstream = readsAlns[0].startswith(insert)
-            if isUpstream:
-                refSeq = readsAlns[1]
-                insSeq = readsAlns[0]
-            else:
-                refSeq = readsAlns[0]
-                insSeq = readsAlns[1]
-            
-            if isInsRev is None:
-                isInsRev = ">" in insSeq
-            
-            refData = refSeq.split(":")
-            if not refName:
-                refName = refData[0]
-            refPos = refData[1].split("<")
-            refBeg = min(int(refPos[0]), refBeg)
-            refEnd = max(int(refPos[1]), refEnd)
-
+        readSegs = list(map(Segment.generateFromStr, segList[0]))
         remover = False
-        for key in segs:
+        if len(readSegs) == 2:
+            isUpstream = readSegs[0].name == insert
+            if isUpstream:
+                ref = readSegs[1]
+                ins = readSegs[0]
+            else:
+                ref = readSegs[0]
+                ins = readSegs[1]
+        elif len(readSegs) > 2:
+            # ensure the insersion part is the first element 
+            if readSegs[0].name == insert:
+                isUpstream = True
+            elif readSegs[-1].name == insert:
+                isUpstream = False
+                readSegs = [x.reverse() for x in reversed(readSegs)]
+            else:
+                remover = True
+
+            catList = []
+            insLen = 0
+            longestRef = 0
+            for readSeg in readSegs:
+                if readSeg.name == insert:
+                    catList.append(readSeg)
+                    insLen += readSeg.length
+                    continue
+                catable = False
+                for i in range(len(catList)):
+                    catSeg = catList[i]
+                    if readSeg.isCatableWith(catSeg):
+                        catList[i] = catSeg.cat(readSeg)
+                        catable = True
+                        longestRef = max(longestRef, catList[i].length)
+                        break
+                if not catable:
+                    catList.append(readSeg)
+                    longestRef = max(longestRef, readSeg.length)
+            if longestRef < insLen:
+                remover = True
+
+            for catSeg in catList:
+                if catSeg.name == insert:
+                    ins = catSeg
+                elif (longestRef - catSeg.length) / catSeg.length < 0.5:
+                    ref = catSeg
+                    break
+            
+            if ref.isRev:
+                ref.reverse()
+                ins.reverse()
+                isUpstream = not isUpstream
+        # end of if-else for segment number 
+
+        for seg in segs:
             if remover:
                 break
-            qryName, qryBeg, qryEnd = key
-            if qryName == refName:
+            if seg.name == ref.name:
                 if isUpstream:
-                    posRemover = qryBeg <= refBeg and refBeg <= qryEnd
+                    posRemover = seg.start <= ref.start and ref.start <= seg.end
                 else:
-                    posRemover = qryBeg <= refEnd and refEnd <= qryEnd
+                    posRemover = seg.start <= ref.end and ref.end <= seg.end
+
 
                 if posRemover:
-                    isRev, rptFam, rptBeg, rptEnd = segs[key]
-                    remover = isRev == isInsRev
+                    remover = seg.isRev == ins.isRev
         
         if not remover:
             passedGroup.append(group)
@@ -262,7 +246,7 @@ def main(args):
     inFile = openFile(args.input)
     outFile = open(args.output + ".maf", "w+")
 
-    if args.a:
+    if args.gap:
         pass
     else:
         filterByGroups(inFile, outFile, segs, args.insert)
@@ -276,12 +260,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seg", help="segment file", required=True)
     parser.add_argument("--insert", help="insertion segment name", required=True)
-    # parser.add_argument("--gap", help="(default 0) set a gap for both ends", default=0, type=int)
-    # parser.add_argument("-a", help="filter by alignment", action="store_true")
+    parser.add_argument("--gap", help="considering gaps in read alignments", action="store_true")
     parser.add_argument("-i", "--input", help="input maf file", required=True)
     parser.add_argument("-o", "--output", help="output prefix", required=True)
     args = parser.parse_args()
-    args.a = None
     main(args)
     
 
