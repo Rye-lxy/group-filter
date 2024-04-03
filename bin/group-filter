@@ -244,7 +244,7 @@ def filterByGroups(inFile, outFile, segs, insert):
 def main(args):
     segs = dict(segmentsFromLines(openFile(args.seg)))
     inFile = openFile(args.input)
-    outFile = open(args.output + ".maf", "w+")
+    outFile = open(args.output if args.output.endswith("maf") else args.output + ".maf", "w+")
 
     if args.gap:
         pass
@@ -262,7 +262,7 @@ if __name__ == "__main__":
     parser.add_argument("--insert", help="insertion segment name", required=True)
     parser.add_argument("--gap", help="considering gaps in read alignments", action="store_true")
     parser.add_argument("-i", "--input", help="input maf file", required=True)
-    parser.add_argument("-o", "--output", help="output prefix", required=True)
+    parser.add_argument("-o", "--output", help="output file name, add maf suffix if not specified", required=True)
     args = parser.parse_args()
     main(args)
     
