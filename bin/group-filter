@@ -41,6 +41,17 @@ class Segment:
         
         return self(name, start, end, isRev)
     
+    @classmethod
+    def generateFromAlign(self, aln):
+        # Initialize from maf alignment data
+        fields = aln.split()
+        name = fields[1]
+        start = int(fields[2])
+        length = int(fields[3])
+        end = start + length - 1
+        isRev = fields[4] == "-"
+        return self(name, start, end, isRev)
+    
     def cat(self, other, maxGap = 0.2):
         # Concatenate 2 close or overlapped segments.
         # Notice: it will return the origin object 
@@ -140,106 +151,77 @@ def groupsFromLines(lines):
             textList.append(stripped)
             segList[-1] += fields[1:]
 
-def filterByGroups(inFile, outFile, segs, insert, gap):
-    passedGroup = []
-    for group, textList, segList in groupsFromLines(inFile):
-        readSegs = list(map(Segment.generateFromStr, segList[0]))
-        remover = False
-        if len(readSegs) == 2:
-            isUpstream = readSegs[0].name == insert
-            if isUpstream:
-                ref = readSegs[1]
-                ins = readSegs[0]
-            else:
-                ref = readSegs[0]
-                ins = readSegs[1]
-        elif len(readSegs) > 2:
-            # ensure the insersion part is the first element 
-            if readSegs[0].name == insert:
-                isUpstream = True
-            elif readSegs[-1].name == insert:
-                isUpstream = False
-                readSegs = [x.reverse() for x in reversed(readSegs)]
-            else:
-                remover = True
+def filterByGroups(segList, segs, insert, gap):
+    readSegs = list(map(Segment.generateFromStr, segList[0]))
+    if len(readSegs) == 2:
+        isUpstream = readSegs[0].name == insert
+        if isUpstream:
+            ref = readSegs[1]
+            ins = readSegs[0]
+        else:
+            ref = readSegs[0]
+            ins = readSegs[1]
+    elif len(readSegs) > 2:
+        # ensure the insersion part is the first element 
+        if readSegs[0].name == insert:
+            isUpstream = True
+        elif readSegs[-1].name == insert:
+            isUpstream = False
+            readSegs = [x.reverse() for x in reversed(readSegs)]
+        else:
+            return
 
-            catList = []
-            insLen = 0
-            longestRef = 0
-            for readSeg in readSegs:
-                if readSeg.name == insert:
-                    catList.append(readSeg)
-                    insLen += readSeg.length
-                    continue
-                catable = False
-                for i in range(len(catList)):
-                    catSeg = catList[i]
-                    if readSeg.isCatableWith(catSeg):
-                        catList[i] = catSeg.cat(readSeg)
-                        catable = True
-                        longestRef = max(longestRef, catList[i].length)
-                        break
-                if not catable:
-                    catList.append(readSeg)
-                    longestRef = max(longestRef, readSeg.length)
-            if longestRef < insLen:
-                remover = True
-
-            for catSeg in catList:
-                if catSeg.name == insert:
-                    ins = catSeg
-                elif (longestRef - catSeg.length) / catSeg.length < 0.5:
-                    ref = catSeg
+        catList = []
+        insLen = 0
+        longestRef = 0
+        for readSeg in readSegs:
+            if readSeg.name == insert:
+                catList.append(readSeg)
+                insLen += readSeg.length
+                continue
+            catable = False
+            for i in range(len(catList)):
+                catSeg = catList[i]
+                if readSeg.isCatableWith(catSeg):
+                    catList[i] = catSeg.cat(readSeg)
+                    catable = True
+                    longestRef = max(longestRef, catList[i].length)
                     break
-            
-            if ref.isRev:
-                ref.reverse()
-                ins.reverse()
-                isUpstream = not isUpstream
-        # end of if-else for segment number 
+            if not catable:
+                catList.append(readSeg)
+                longestRef = max(longestRef, readSeg.length)
+        if longestRef < insLen:
+            return
 
-        for seg in segs:
-            if remover:
+        for catSeg in catList:
+            if catSeg.name == insert:
+                ins = catSeg
+            elif (longestRef - catSeg.length) / catSeg.length < 0.5:
+                ref = catSeg
                 break
-            if seg.name == ref.name:
-                if isUpstream:
-                    posRemover = seg.start <= ref.start - gap and ref.start - gap <= seg.end
-                else:
-                    posRemover = seg.start <= ref.end + gap and ref.end + gap <= seg.end
-
-
-                if posRemover:
-                    remover = seg.isRev == ins.isRev
         
-        if not remover:
-            passedGroup.append(group)
-            print("#", group, sep=" ", file=outFile)
-            print(*textList, sep="\n", file=outFile)
-            print("\n", file=outFile)
-    # end of iteration in groupsFromLines
-    
-    print("%d groups passed the filter." % (len(passedGroup)))
-    line = inFile.readline()
-    if passedGroup[0].startswith("group1-"):
-        print("#", "PART", passedGroup[0], sep=" ", file=outFile)
-        print("\n", file=outFile)
-        while not line[0] == "#":
-            print(line, end="", file=outFile)
-            line = inFile.readline()
-    else:
-        while not line[0] == "#":
-            line = inFile.readline()
-    
-    outputFlag = False
-    while line:
-        if line[0] == "#":
-            group = line.split()[2]
-            outputFlag = group in passedGroup
+        if ref.isRev:
+            ref.reverse()
+            ins.reverse()
+            isUpstream = not isUpstream
+    # end of if-else for segment number 
 
-        if outputFlag:
-            print(line, end="", file=outFile)
+    remover = False
+    for seg in segs:
+        if remover:
+            return
+        if seg.name == ref.name:
+            if isUpstream:
+                posRemover = seg.start <= ref.start - gap and ref.start - gap <= seg.end
+            else:
+                posRemover = seg.start <= ref.end + gap and ref.end + gap <= seg.end
 
-        line = inFile.readline()
+
+            if posRemover:
+                remover = seg.isRev == ins.isRev
+    
+    if not remover:
+        return ref, ins
 
 def main(args):
     segs = dict(segmentsFromLines(openFile(args.seg)))
@@ -250,7 +232,41 @@ def main(args):
     if args.gap < 0:
         pass
     else:
-        filterByGroups(inFile, outFile, segs, args.insert, args.gap)
+        passedGroup = []
+        for group, textList, segList in groupsFromLines(inFile):
+            passedRes = filterByGroups(segList, segs, args.insert, args.gap)
+            if not passedRes:
+                continue
+            passedGroup.append(group)
+            print("#", group, sep=" ", file=outFile)
+            print(*textList, sep="\n", file=outFile)
+            print("\n", file=outFile)
+
+        print("%d groups passed the filter." % (len(passedGroup)))
+        line = inFile.readline()
+        if passedGroup[0].startswith("group1-"):
+            # Here is a problem if the input don't start with group1,
+            # then the alignment of the first group will be ignored.
+            print("#", "PART", passedGroup[0], sep=" ", file=outFile)
+            print("\n", file=outFile)
+            while not line[0] == "#":
+                print(line, end="", file=outFile)
+                line = inFile.readline()
+        else:
+            while not line[0] == "#":
+                line = inFile.readline()
+        
+        outputFlag = False
+        while line:
+            if line[0] == "#":
+                group = line.split()[2]
+                outputFlag = group in passedGroup
+
+            if outputFlag:
+                print(line, end="", file=outFile)
+
+            line = inFile.readline()
+    # end of if-else for gap control
 
     inFile.close()
     outFile.close()
