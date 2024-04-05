@@ -131,13 +131,15 @@ def segmentsFromLines(lines):
 def groupsFromLines(lines):
     title = ""
     for line in lines:
-        if line.startswith("# PART"):  # group info end
-            yield title, textList, segList
-            break
         stripped = line.rstrip()
         fields = stripped.split()
         if len(fields) < 2:
             continue
+        if fields[1] == "PART":  # group info end
+            global firstGroup
+            firstGroup = fields[2]
+            yield title, textList, segList
+            break
         if fields[1].startswith("group"):
             if title:
                 yield title, textList, segList
@@ -244,11 +246,8 @@ def main(args):
 
         print("%d groups passed the filter." % (len(passedGroup)))
         line = inFile.readline()
-        if passedGroup[0].startswith("group1-"):
-            # Here is a problem if the input don't start with group1,
-            # then the alignment of the first group will be ignored.
+        if passedGroup[0] == firstGroup:
             print("#", "PART", passedGroup[0], sep=" ", file=outFile)
-            print("\n", file=outFile)
             while not line[0] == "#":
                 print(line, end="", file=outFile)
                 line = inFile.readline()
