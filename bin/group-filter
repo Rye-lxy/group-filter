@@ -109,7 +109,7 @@ def openFile(fileName):
         return gzip.open(fileName, "rt")
     return open(fileName)
 
-def segmentsFromLines(lines):
+def segmentsFromOut(lines):
     for line in lines:
         stripped = line.strip()
         if not stripped:
@@ -124,6 +124,20 @@ def segmentsFromLines(lines):
         rptFam = fields[10]
         rptBeg = int(fields[13] if isRev else fields[11])
         rptEnd = int(fields[12])
+        seg = Segment(qryName, qryBeg, qryEnd, isRev)
+        data = rptFam, rptBeg, rptEnd
+        yield seg, data
+
+def segmentsFromTxt(lines):
+    for line in lines:
+        fields = line.split()
+        qryName = fields[5]
+        qryBeg = int(fields[6])
+        qryEnd = int(fields[7])
+        isRev = fields[9] == "-"
+        rptFam = fields[10]
+        rptBeg = int(fields[13])
+        rptEnd = int(fields[14])
         seg = Segment(qryName, qryBeg, qryEnd, isRev)
         data = rptFam, rptBeg, rptEnd
         yield seg, data
@@ -226,7 +240,10 @@ def filterByGroups(segList, segs, insert, gap):
         return ref, ins
 
 def main(args):
-    segs = dict(segmentsFromLines(openFile(args.seg)))
+    if args.seg.endswith("out"):
+        segs = dict(segmentsFromOut(openFile(args.seg)))
+    elif args.seg.endswith("txt"):
+        segs = dict(segmentsFromTxt(openFile(args.seg)))        
     inFile = openFile(args.input)
     outFile = open(args.output if args.output.endswith("maf") else 
                    args.output + ".maf", "w+")
@@ -279,11 +296,15 @@ if __name__ == "__main__":
     parser.add_argument("--gap", nargs="?", const=-1, default=0, type=int,
                         help="Set a gap, or determine gap from alignment with no argument.")
     parser.add_argument("-i", "--input", help="Input maf file", required=True)
-    parser.add_argument("-o", "--output", required=True,
-                        help="Output file name, add 'maf' suffix if not specified.")
+    parser.add_argument("-o", "--output", required=True, help="Output file name.")
     args = parser.parse_args()
-    main(args)
-    
+    if args.seg.endswith("out") or args.seg.endswith("txt"):
+        main(args)
+    else:
+        parser.error('''
+                     Please give the seg file with rmsk .out format or
+                     the UCSC Genome Browser rmsk .txt format.
+                     ''')    
 
 
     
